@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>MT5 Position Volumes</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 6px 12px; text-align: right; }
+    th { background: #f5f5f5; }
+    td:first-child, th:first-child { text-align: left; }
+    .muted { color:#666; }
+    .error { color:#b00020; }
+  </style>
+</head>
+<body>
+  <h1>Open Volumes Summary</h1>
+  <div id="out">Loading…</div>
+
+  <script>
+    async function load(){
+      const out = document.getElementById("out");
+      try {
+        const res = await fetch("/summary", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const accounts = Object.keys(data);
+        if (accounts.length === 0) {
+          out.innerHTML = "<p class='muted'>No data yet. Make sure your EAs are posting to /mt5/positions.</p>";
+          return;
+        }
+
+        const symbolsSet = new Set();
+        accounts.forEach(acct => {
+          for (const sym in data[acct]) symbolsSet.add(sym);
+        });
+        const symbols = Array.from(symbolsSet).sort();
+
+        let html = "<table><tr><th>Symbol</th>";
+        for (const acct of accounts){
+          html += `<th>${acct}</th>`;
+        }
+        html += "</tr>";
+
+        for (const sym of symbols){
+          html += `<tr><td>${sym}</td>`;
+          for (const acct of accounts){
+            const vol = data[acct][sym] || 0;
+            html += `<td>${Number(vol).toFixed(2)}</td>`;
+          }
+          html += "</tr>";
+        }
+        html += "</table>";
+
+        out.innerHTML = html;
+      } catch (err) {
+        out.innerHTML = `<p class="error">Failed to load /summary: ${err.message}</p>`;
+        console.error(err);
+      }
+    }
+
+    setInterval(load, 2000);
+    load();
+  </script>
+</body>
+</html>

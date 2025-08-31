@@ -1,11 +1,9 @@
 {
-  "name": "mt5-copy-monitor",
+  "name": "mt5-monitor",
   "version": "1.0.0",
   "type": "module",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
-  },
+  "engines": { "node": ">=18" },
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2"

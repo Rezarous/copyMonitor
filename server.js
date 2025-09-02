@@ -9,7 +9,7 @@ app.use(express.static("public"));
 
 const SHARED_SECRET = process.env.MT5_SHARED_SECRET || "change-me";
 
-// in-memory state: account → { at, volumes }
+// in-memory state: account → { iso, profit, volumes }
 const state = new Map();
 
 // EA posts here
@@ -20,7 +20,7 @@ app.post("/mt5/positions", (req, res) => {
   const body = req.body || {};
   const account = String(body.account || "unknown");
 
-  // build symbol → total volume
+  // Sum volumes per symbol (lots)
   const volumes = {};
   for (const p of (body.positions || [])) {
     const sym = p.symbol;
@@ -28,22 +28,33 @@ app.post("/mt5/positions", (req, res) => {
     volumes[sym] = (volumes[sym] || 0) + vol;
   }
 
-  state.set(account, { at: Date.now(), volumes });
+  const atMs = Date.now();
+  const profit = (body.profit !== undefined && body.profit !== null)
+    ? Number(body.profit)
+    : NaN;
+
+  state.set(account, {
+    iso: new Date(atMs).toISOString(),
+    profit: Number.isFinite(profit) ? profit : null,
+    volumes
+  });
 
   return res.json({ ok: true });
 });
 
-// return simple summary
+// Dashboard summary
 app.get("/summary", (req, res) => {
-  const result = {};
+  const accounts = {};
+  const volumes = {};
   for (const [acct, v] of state) {
-    result[acct] = v.volumes;
+    accounts[acct] = {
+      iso: v.iso,
+      profit: v.profit // may be null if not sent
+    };
+    volumes[acct] = v.volumes;
   }
-  res.json(result);
+  res.json({ accounts, volumes });
 });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log("Listening on", port));
-
-// in server.js
-app.get("/healthz", (req,res) => res.json({ ok: true, accounts: Array.from(state.keys()).length }));

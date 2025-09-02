@@ -2,22 +2,51 @@
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>MT5 Position Volumes</title>
+  <title>MT5 Dashboard — Volumes + Metrics</title>
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    table { border-collapse: collapse; }
-    th, td { border: 1px solid #ccc; padding: 6px 12px; text-align: right; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 20px; }
+    h1 { margin: 0 0 12px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: right; }
     th { background: #f5f5f5; }
-    td:first-child, th:first-child { text-align: left; }
+    td:first-child, th:first-child { text-align: left; white-space: nowrap; }
     .muted { color:#666; }
-    .error { color:#b00020; }
+    .pos { color: #11874a; font-weight: 600; }
+    .neg { color: #c62828; font-weight: 600; }
+    .section { background:#fafafa; font-weight:600; }
+    .sep td { background:#eee; height: 6px; padding: 0; border-left: none; border-right: none; }
   </style>
 </head>
 <body>
-  <h1>Open Volumes Summary</h1>
+  <h1>MT5 Dashboard</h1>
   <div id="out">Loading…</div>
 
   <script>
+    const dash = (x, d=2) => (x == null || Number.isNaN(Number(x))) ? "-" : Number(x).toFixed(d);
+    const fmtTime = iso => {
+      if (!iso) return "-";
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? "-" : d.toLocaleString();
+    };
+    const secsSince = iso => {
+      if (!iso) return "-";
+      const t = new Date(iso).getTime();
+      if (Number.isNaN(t)) return "-";
+      const s = (Date.now() - t) / 1000;
+      return s < 0 ? "-" : s.toFixed(1);
+    };
+    // accept profit, pl, or equity-balance (if present)
+    function pickPL(a){
+      if (!a) return null;
+      if (a.profit != null && Number.isFinite(Number(a.profit))) return Number(a.profit);
+      if (a.pl != null && Number.isFinite(Number(a.pl))) return Number(a.pl);
+      if (a.balance != null && a.equity != null) {
+        const b = Number(a.balance), e = Number(a.equity);
+        if (Number.isFinite(b) && Number.isFinite(e)) return e - b;
+      }
+      return null;
+    }
+
     async function load(){
       const out = document.getElementById("out");
       try {
@@ -25,42 +54,78 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
-        const accounts = Object.keys(data);
-        if (accounts.length === 0) {
+        const accountsMeta = data.accounts || {};
+        const volumesMap = data.volumes || {};
+        const accounts = Object.keys(accountsMeta);
+
+        if (accounts.length === 0){
           out.innerHTML = "<p class='muted'>No data yet. Make sure your EAs are posting to /mt5/positions.</p>";
           return;
         }
 
+        // Gather all symbols that appear in any account
         const symbolsSet = new Set();
-        accounts.forEach(acct => {
-          for (const sym in data[acct]) symbolsSet.add(sym);
-        });
+        for (const acct of accounts){
+          const volObj = volumesMap[acct] || {};
+          for (const sym in volObj) symbolsSet.add(sym);
+        }
         const symbols = Array.from(symbolsSet).sort();
 
-        let html = "<table><tr><th>Symbol</th>";
-        for (const acct of accounts){
-          html += `<th>${acct}</th>`;
-        }
+        // Build one table: Volumes section first, then Metrics
+        let html = "<table>";
+        // header
+        html += "<tr><th>Row</th>";
+        for (const acct of accounts) html += `<th>${acct}</th>`;
         html += "</tr>";
 
+        // Volumes section header
+        html += `<tr class="section"><td>Volumes (lots)</td>${"<td></td>".repeat(accounts.length)}</tr>`;
+
+        // volume rows by symbol
         for (const sym of symbols){
           html += `<tr><td>${sym}</td>`;
           for (const acct of accounts){
-            const vol = data[acct][sym] || 0;
-            html += `<td>${Number(vol).toFixed(2)}</td>`;
+            const vol = (volumesMap[acct] || {})[sym];
+            html += `<td>${dash(vol)}</td>`;
           }
           html += "</tr>";
         }
-        html += "</table>";
 
+        // separator
+        html += `<tr class="sep"><td colspan="${accounts.length+1}"></td></tr>`;
+
+        // Metrics section header
+        html += `<tr class="section"><td>Metrics</td>${"<td></td>".repeat(accounts.length)}</tr>`;
+
+        // Last Heartbeat
+        html += "<tr><td>Last Heartbeat</td>";
+        for (const acct of accounts) html += `<td>${fmtTime(accountsMeta[acct]?.iso)}</td>`;
+        html += "</tr>";
+
+        // Seconds since heartbeat
+        html += "<tr><td>Seconds since heartbeat</td>";
+        for (const acct of accounts) html += `<td>${secsSince(accountsMeta[acct]?.iso)}</td>`;
+        html += "</tr>";
+
+        // Current P/L
+        html += "<tr><td>Current P/L</td>";
+        for (const acct of accounts){
+          const a = accountsMeta[acct];
+          const pl = pickPL(a);
+          const cls = (pl == null) ? "" : (pl >= 0 ? "pos" : "neg");
+          html += `<td class="${cls}">${dash(pl)}</td>`;
+        }
+        html += "</tr>";
+
+        html += "</table>";
         out.innerHTML = html;
       } catch (err) {
-        out.innerHTML = `<p class="error">Failed to load /summary: ${err.message}</p>`;
+        out.innerHTML = `<p style="color:#b00020">Failed to load /summary: ${err.message}</p>`;
         console.error(err);
       }
     }
 
-    setInterval(load, 2000);
+    setInterval(load, 1000);
     load();
   </script>
 </body>

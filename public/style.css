@@ -1,46 +1,105 @@
-:root {
+:root{
+  --bg: #0f1319;
+  --panel: #131823;
+  --text: #e6e9ee;
+  --muted: #9aa4b2;
+  --pos: #4cd27b;          /* green */
+  --neg: #ff5a5f;          /* red */
+  --border: #242b36;
+  --head-bg: #171d2a;
+  --section-bg: #141a26;
   --first-col: 180px;
-  --acct-cols: 1;              /* JS sets this on the <table> */
-  --cell-pad: 8px 10px;
-  --muted: #666;
-  --pos: #11874a;
-  --neg: #c62828;
-  --border: #ccc;
-  --head-bg: #f5f5f5;
-  --section-bg: #fafafa;
+  --acct-cols: 1;
+  --cell-pad: 10px 12px;
+  --mt5-blue: #4aa3ff;  /* MT5-ish link/brand blue */
 }
 
-body { font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin: 20px; }
-h1 { margin: 0 0 12px; }
-
-table.grid {
-  width: 100%;
-  table-layout: fixed;                /* equal widths for account columns */
-  border-collapse: collapse;
-  border: 1px solid var(--border);
-}
-.grid th, .grid td {
-  border: 1px solid var(--border);
-  padding: var(--cell-pad);
-  vertical-align: top;
-  word-wrap: break-word;
-}
-.grid th { background: var(--head-bg); }
-
-.grid th:first-child, .grid td:first-child {
-  text-align: left;
-  white-space: nowrap;
-  width: var(--first-col);
-}
-.grid th:not(:first-child), .grid td:not(:first-child) {
-  width: calc((100% - var(--first-col)) / var(--acct-cols));
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:20px;
+  background:var(--bg);
+  color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
 }
 
-.muted { color: var(--muted); }
-.pos { color: var(--pos); font-weight: 600; }
-.neg { color: var(--neg); font-weight: 600; }
+h1{margin:0 0 12px; color:var(--text);}
 
-.line { display: flex; justify-content: space-between; gap: 12px; }
-.meta { border-top: 1px dashed #bbb; margin-top: 6px; padding-top: 6px; }
-.pl { text-align: right; min-width: 72px; }
-.section { background: var(--section-bg); font-weight: 600; }
+table.grid{
+  width:100%;
+  table-layout:fixed;
+  border-collapse:collapse;
+  border:1px solid var(--border);
+  background:var(--panel);
+  border-radius:8px;
+  overflow:hidden;
+}
+
+.grid th,.grid td{
+  border:1px solid var(--border);
+  padding:var(--cell-pad);
+  vertical-align:top;
+  word-wrap:break-word;
+}
+
+/* center the left "Symbol" cell vertically across its rowspan */
+.grid td:first-child { vertical-align: middle; }
+
+.grid th{
+  background:var(--head-bg);
+  color:var(--text);
+  font-weight:600;
+}
+
+.grid th:first-child,.grid td:first-child{
+  text-align:left;
+  white-space:nowrap;
+  width:var(--first-col);
+}
+
+.grid th:not(:first-child),.grid td:not(:first-child){
+  width:calc((100% - var(--first-col))/var(--acct-cols));
+}
+
+/* sections */
+.section{background:var(--section-bg); font-weight:600;}
+
+/* text helpers */
+.muted{color:var(--muted);}
+.pos{color:var(--pos); font-weight:600;}
+.neg{color:var(--neg); font-weight:600;}
+
+/* open-position row with dotted leader between left label and right value */
+.line{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.line .left{white-space:nowrap;}
+.line .leader{
+  flex:1 1 auto;
+  border-bottom:1px dotted rgba(154,164,178,.55); /* dotted line */
+  margin:0 4px;
+  transform:translateY(-2px);
+}
+.pl{text-align:right; min-width:72px; white-space:nowrap;}
+
+/* meta rows (Total Vol / Break-Even): label left, value right */
+.metaRow{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  gap:12px;
+}
+
+/* metrics: center values (account columns) */
+.centerRow td:not(:first-child){text-align:center;}
+
+/* clickable symbol */
+.symToggle{
+  cursor:pointer;
+  text-decoration:underline dotted;
+  text-underline-offset:3px;
+}
+.symToggle:hover{opacity:.85;}
+.metaVal { color: var(--mt5-blue); font-weight: 700; }

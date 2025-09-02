@@ -4,120 +4,267 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>MT5 Dashboard — Symbols × Accounts</title>
-  <link rel="stylesheet" href="style.css?v=4">
+
+  <!-- Dark MT5-like styles -->
+  <style>
+    :root{
+      --bg:#0f1319; --panel:#131823; --text:#e6e9ee; --muted:#9aa4b2;
+      --pos:#4cd27b; --neg:#ff5a5f; --border:#242b36; --head-bg:#171d2a; --section-bg:#141a26;
+      --mt5-blue: #4aa3ff;
+      --first-col:180px; --acct-cols:1; --cell-pad:10px 12px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:20px;background:var(--bg);color:var(--text);
+         font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+    h1{margin:0 0 12px;color:var(--text)}
+
+    table.grid{
+      width:100%;table-layout:fixed;border-collapse:collapse;
+      border:1px solid var(--border);background:var(--panel);
+      border-radius:8px;overflow:hidden;
+    }
+    .grid th,.grid td{
+      border:1px solid var(--border);padding:var(--cell-pad);
+      vertical-align:top;word-wrap:break-word;
+    }
+    .grid th{background:var(--head-bg);color:var(--text);font-weight:600}
+    .grid th:first-child,.grid td:first-child{
+      text-align:left;white-space:nowrap;width:var(--first-col);
+    }
+    .grid th:not(:first-child),.grid td:not(:first-child){
+      width:calc((100% - var(--first-col))/var(--acct-cols));
+    }
+
+    .grid tr > td:first-child { vertical-align: middle !important; }
+
+    .section{background:var(--section-bg);font-weight:600}
+    .muted{color:var(--muted)}
+    .pos{color:var(--pos);font-weight:600}
+    .neg{color:var(--neg);font-weight:600}
+
+    /* open-position line with dotted leader between left text and right P/L */
+    .line{display:flex;align-items:center;gap:8px}
+    .line .left{white-space:nowrap}
+    .line .leader{
+      flex:1 1 auto;border-bottom:1px dotted rgba(154,164,178,.55);
+      margin:0 4px;transform:translateY(-2px)
+    }
+    .pl{text-align:right;min-width:72px;white-space:nowrap}
+
+    /* meta rows (Total Vol / Break-Even): label left, value right */
+    .metaRow{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+
+    /* metrics: center values (account columns) */
+    .centerRow td:not(:first-child){text-align:center}
+
+    /* clickable symbol */
+    .symToggle{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+    .symToggle:hover{opacity:.85}
+
+    .metaVal { color: var(--mt5-blue); font-weight: 700; }
+  </style>
 </head>
 <body>
   <h1>MT5 Dashboard</h1>
   <div id="out">Loading…</div>
 
   <script>
+    // ========= Config =========
+    const DEFAULT_OPEN = false; // set to true for expanded-by-default
+
+    // ========= Collapsible state =========
+    const openState = new Map(); // sym -> true/false
+    let lastData = null;
+
+    // ========= Helpers =========
     const dash = (x,d=2)=>(x==null||Number.isNaN(Number(x)))?"-":Number(x).toFixed(d);
+
     const fmtPosLine = p => {
       const side=(p?.type||"").toUpperCase();
       const vol=dash(p?.volume);
       const plv=(p?.profit==null)?null:Number(p.profit);
       const cls=(plv==null||Number.isNaN(plv))?"":(plv>=0?"pos":"neg");
-      return `<div class="line"><div>${side}: ${vol}</div><div class="pl ${cls}">${dash(plv)}</div></div>`;
+      return `<div class="line">
+                <div class="left">${side}: ${vol}</div>
+                <div class="leader"></div>
+                <div class="pl ${cls}">${dash(plv)}</div>
+              </div>`;
     };
+
     const fmtTime = iso => { if(!iso) return "-"; const d=new Date(iso); return isNaN(d.getTime())?"-":d.toLocaleString(); };
     const secsSince = iso => { if(!iso) return "-"; const t=new Date(iso).getTime(); if(Number.isNaN(t)) return "-"; const s=(Date.now()-t)/1000; return s<0?"-":s.toFixed(1); };
-    function pickPL(a){ if(!a) return null; if(a.profit!=null&&Number.isFinite(Number(a.profit))) return Number(a.profit);
-      if(a.pl!=null&&Number.isFinite(Number(a.pl))) return Number(a.pl);
-      if(a.balance!=null&&a.equity!=null){const b=Number(a.balance),e=Number(a.equity); if(Number.isFinite(b)&&Number.isFinite(e)) return e-b;}
-      return null; }
+    function pickPL(a){
+      if(!a) return null;
+      if(a.profit!=null && Number.isFinite(Number(a.profit))) return Number(a.profit);
+      if(a.pl!=null && Number.isFinite(Number(a.pl))) return Number(a.pl);
+      if(a.balance!=null && a.equity!=null){
+        const b=Number(a.balance), e=Number(a.equity);
+        if(Number.isFinite(b) && Number.isFinite(e)) return e-b;
+      }
+      return null;
+    }
 
-    async function load(){
-      const out=document.getElementById("out");
-      try{
-        const res=await fetch("/summary",{cache:"no-store"});
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data=await res.json();
+    // ========= Render (bug-fixed collapse) =========
+    function render(data){
+      lastData = data;
 
-        const accountsMeta=data.accounts||{};
-        const volumesMap=data.volumes||{};
-        const posMap=data.positions||{};
-        const beMapAll=data.breakevens||{};
-        const accounts=Object.keys(accountsMeta);
+      const accountsMeta = data.accounts || {};
+      const volumesMap   = data.volumes  || {};
+      const posMap       = data.positions|| {};
+      const beMapAll     = data.breakevens || {};
+      const accounts = Object.keys(accountsMeta);
 
-        if(accounts.length===0){
-          out.innerHTML="<p class='muted'>No data yet. Make sure your EAs are posting to /mt5/positions.</p>";
-          return;
-        }
+      const out = document.getElementById("out");
+      if (accounts.length === 0){
+        out.innerHTML = "<p class='muted'>No data yet. Make sure your EAs are posting to /mt5/positions.</p>";
+        return;
+      }
 
-        // collect symbols present
-        const symbolsSet=new Set();
-        for(const acct of accounts){
-          for(const s in (volumesMap[acct]||{})) symbolsSet.add(s);
-          for(const p of (posMap[acct]||[])) if(p.symbol) symbolsSet.add(p.symbol);
-        }
-        const symbols=[...symbolsSet].sort();
+      // collect all symbols
+      const symbolsSet = new Set();
+      for (const acct of accounts){
+        for (const s in (volumesMap[acct] || {})) symbolsSet.add(s);
+        for (const p of (posMap[acct] || [])) if (p.symbol) symbolsSet.add(p.symbol);
+      }
+      const symbols = [...symbolsSet].sort();
 
-        let html=`<table class="grid" style="--acct-cols:${accounts.length}">`;
-        html+="<tr><th>Symbol</th>";
-        for(const acct of accounts) html+=`<th>${acct}</th>`;
-        html+="</tr>";
+      // ensure default state for new symbols
+      for (const sym of symbols){
+        if (!openState.has(sym)) openState.set(sym, !!DEFAULT_OPEN);
+      }
 
-        for(const sym of symbols){
-          const maxLines=Math.max(1, ...accounts.map(ac=>(posMap[ac]||[]).filter(p=>p.symbol===sym).length));
-          const totalRows=maxLines+2;
+      let html = `<table class="grid" style="--acct-cols:${accounts.length}">`;
+      html += "<tr><th>Symbol</th>";
+      for (const acct of accounts) html += `<th>${acct}</th>`;
+      html += "</tr>";
 
-          for(let i=0;i<maxLines;i++){
-            if(i===0){ html+=`<tr><td rowspan="${totalRows}"><strong>${sym}</strong></td>`; }
-            else { html+="<tr>"; }
-            for(const acct of accounts){
-              const plist=(posMap[acct]||[]).filter(p=>p.symbol===sym);
-              html+= plist[i] ? `<td>${fmtPosLine(plist[i])}</td>` : `<td><span class="muted">-</span></td>`;
+      for (const sym of symbols){
+        const isOpen = openState.get(sym) !== false;
+
+        // positions per account for this symbol
+        const perAcctLists = accounts.map(ac => (posMap[ac] || []).filter(p => p.symbol === sym));
+
+        if (isOpen){
+          // show positions (at least one row of dashes if none)
+          const maxLines = Math.max(1, ...perAcctLists.map(list => list.length));
+          const totalRows = maxLines + 2; // + Total Vol + Break-Even
+
+          // first row: symbol cell + first positions line
+          html += `<tr>
+            <td rowspan="${totalRows}">
+              <strong class="symToggle" data-sym="${sym}">
+                ${sym} (hide)
+              </strong>
+            </td>`;
+
+          for (let c = 0; c < accounts.length; c++){
+            const row = perAcctLists[c][0];
+            html += row ? `<td>${fmtPosLine(row)}</td>` : `<td><span class="muted">-</span></td>`;
+          }
+          html += "</tr>";
+
+          // remaining position rows
+          for (let i = 1; i < maxLines; i++){
+            html += "<tr>";
+            for (let c = 0; c < accounts.length; c++){
+              const row = perAcctLists[c][i];
+              html += row ? `<td>${fmtPosLine(row)}</td>` : `<td><span class="muted">-</span></td>`;
             }
-            html+="</tr>";
+            html += "</tr>";
           }
 
-          // Total Vol row (no first-column cell; symbol cell already rowspans)
-          html+="<tr>";
-          for(const acct of accounts){
-            const tv=(volumesMap[acct]||{})[sym];
-            html+=`<td><div class="meta"><span class="muted">Total Vol</span> <strong>${dash(tv)}</strong></div></td>`;
+          // Total Vol
+          html += "<tr>";
+          for (const acct of accounts){
+            const tv = (volumesMap[acct] || {})[sym];
+            html += `<td><div class="metaRow"><span class="muted">Total Vol</span><strong class="metaVal">${dash(tv)}</strong></div></td>`;
           }
-          html+="</tr>";
+          html += "</tr>";
 
-          // Break-Even row (server-computed)
-          html+="<tr>";
-          for(const acct of accounts){
-            const be=(beMapAll[acct]||{})[sym];
-            const display=(be==null||Number.isNaN(Number(be)))? "-" : Number(be).toFixed(5);
-            html+=`<td><div class="meta"><span class="muted">Break-Even</span> <strong>${display}</strong></div></td>`;
+          // Break-Even
+          html += "<tr>";
+          for (const acct of accounts){
+            const be = (beMapAll[acct] || {})[sym];
+            const display = (be == null || Number.isNaN(Number(be))) ? "-" : Number(be).toFixed(5);
+            html += `<td><div class="metaRow"><span class="muted">Break-Even</span><strong class="metaVal">${display}</strong></div></td>`;
           }
-          html+="</tr>";
+          html += "</tr>";
+
+        } else {
+          // collapsed: NO dummy positions row.
+          // row 1 = Total Vol
+          html += `<tr>
+            <td rowspan="2">
+              <strong class="symToggle" data-sym="${sym}">
+                ${sym} (show)
+              </strong>
+            </td>`;
+          for (const acct of accounts){
+            const tv = (volumesMap[acct] || {})[sym];
+            html += `<td><div class="metaRow"><span class="muted">Total Vol</span><strong class="metaVal">${dash(tv)}</strong></div></td>`;
+          }
+          html += "</tr>";
+
+          // row 2 = Break-Even
+          html += "<tr>";
+          for (const acct of accounts){
+            const be = (beMapAll[acct] || {})[sym];
+            const display = (be == null || Number.isNaN(Number(be))) ? "-" : Number(be).toFixed(5);
+            html += `<td><div class="metaRow"><span class="muted">Break-Even</span><strong class="metaVal">${display}</strong></div></td>`;
+          }
+          html += "</tr>";
         }
+      }
 
-        // Metrics block at bottom
-        html+=`<tr class="section"><td>Metrics</td>${"<td></td>".repeat(accounts.length)}</tr>`;
+      // Metrics block
+      html += `<tr class="section"><td>Metrics</td>${"<td></td>".repeat(accounts.length)}</tr>`;
 
-        html+="<tr><td>Last Heartbeat</td>";
-        for(const acct of accounts) html+=`<td>${fmtTime(accountsMeta[acct]?.iso)}</td>`;
-        html+="</tr>";
+      html += "<tr class='centerRow'><td>Last Heartbeat</td>";
+      for (const acct of accounts) html += `<td>${fmtTime(accountsMeta[acct]?.iso)}</td>`;
+      html += "</tr>";
 
-        html+="<tr><td>Seconds since heartbeat</td>";
-        for(const acct of accounts) html+=`<td>${secsSince(accountsMeta[acct]?.iso)}</td>`;
-        html+="</tr>";
+      html += "<tr class='centerRow'><td>Seconds since</td>";
+      for (const acct of accounts) html += `<td>${secsSince(accountsMeta[acct]?.iso)}</td>`;
+      html += "</tr>";
 
-        html+="<tr><td>Current P/L</td>";
-        for(const acct of accounts){
-          const pl=pickPL(accountsMeta[acct]);
-          const cls=(pl==null)?"":(pl>=0?"pos":"neg");
-          html+=`<td class="${cls}">${dash(pl)}</td>`;
-        }
-        html+="</tr>";
+      html += "<tr class='centerRow'><td>Current P/L</td>";
+      for (const acct of accounts){
+        const pl = pickPL(accountsMeta[acct]);
+        const cls = (pl == null) ? "" : (pl >= 0 ? "pos" : "neg");
+        html += `<td class="${cls}">${dash(pl)}</td>`;
+      }
+      html += "</tr>";
 
-        html+="</table>";
-        out.innerHTML=html;
+      html += "</table>";
+      out.innerHTML = html;
+
+      // bind toggles
+      out.querySelectorAll(".symToggle").forEach(el=>{
+        el.addEventListener("click", ()=>{
+          const sym = el.getAttribute("data-sym");
+          const cur = openState.get(sym) !== false;
+          openState.set(sym, !cur);
+          render(lastData);
+        });
+      });
+    }
+
+    // ========= Fetch loop =========
+    async function poll(){
+      try{
+        const res = await fetch("/summary",{cache:"no-store"});
+        if(!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        render(data);
       }catch(err){
-        out.innerHTML=`<p style="color:#b00020">Failed to load /summary: ${err.message}</p>`;
+        document.getElementById("out").innerHTML =
+          `<p style="color:#ff5a5f">Failed to load /summary: ${err.message}</p>`;
         console.error(err);
       }
     }
-
-    setInterval(load, 1000);
-    load();
+    setInterval(poll, 1000);
+    poll();
   </script>
 </body>
 </html>

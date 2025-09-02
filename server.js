@@ -41,6 +41,12 @@ function computeBreakEvenForSymbol(posList) {
   return num / den;
 }
 
+// helper
+function normalizeSymbol(sym) {
+  if (!sym) return sym;
+  return sym.replace(/\..*$/, ""); // strips .sp, .m, .pro, etc.
+}
+
 // EA posts here
 app.post("/mt5/positions", (req, res) => {
   if (req.get("x-mt5-secret") !== SHARED_SECRET) {
@@ -49,19 +55,19 @@ app.post("/mt5/positions", (req, res) => {
   const body = req.body || {};
   const account = String(body.account || "unknown");
 
-  // volumes per symbol
+  // volumes per symbol (normalized)
   const volumes = {};
   for (const p of (body.positions || [])) {
-    const sym = p.symbol;
+    const sym = normalizeSymbol(p.symbol);
     const vol = Number(p.volume) || 0;
     volumes[sym] = (volumes[sym] || 0) + vol;
   }
 
-  // slim positions (we need price_open for BE)
+  // slim positions (normalize symbol too)
   const positions = (body.positions || []).map(p => ({
     ticket: p.ticket ?? null,
-    symbol: p.symbol ?? null,
-    type: p.type ?? null,                 // "BUY"/"SELL"
+    symbol: normalizeSymbol(p.symbol),
+    type: p.type ?? null,
     volume: Number(p.volume) || 0,
     price_open: p.price_open != null ? Number(p.price_open) : null,
     profit: p.profit != null ? Number(p.profit) : null
@@ -69,7 +75,7 @@ app.post("/mt5/positions", (req, res) => {
 
   state.set(account, {
     iso: new Date().toISOString(),
-    profit: body.profit != null ? Number(body.profit) : null, // ACCOUNT_PROFIT if you send it
+    profit: body.profit != null ? Number(body.profit) : null,
     volumes,
     positions
   });
